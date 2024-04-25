@@ -1,9 +1,16 @@
 ###### Hadoop ######
+--Start hadoop:
+start-dfs.sh
+start-yarn.sh
+
+--To see hadoop contents:
+hadoop fs -ls /
+
 hdfs dfs -rm -r /CA1_S2
 hadoop fs -mkdir /CA1_S2
 hadoop fs -put ./people_increased.csv /CA1_S2
 hdfs fsck hdfs:///CA1_S2/people_increased.csv -files -blocks -locations
-hadoop fs -ls /
+
 
 hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapper.py -reducer ./reducer.py -input /CA2_S2/CleanProjectTweets.csv -output /CA2_S2_MapReduceOutput
 
@@ -143,6 +150,22 @@ cd workloads
 ./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloade -s
 ./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadf -s
 ./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadg -s
+
+
+#### Hive #### Use hive to demonstrate map reduce along the mapreduce scripts I have.
+CREATE TABLE IF NOT EXISTS tableHive (numRow int, name String, city String, county String, country String) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\054'
+LOAD DATA INPATH 'hdfs://localhost:9000/hive/pig_tutorial_sample.txt' INTO TABLE tableHive;
+hive>SELECT * FROM tableHive;
+--export output:
+
+INSERT OVERWRITE LOCAL DIRECTORY '/home/hduser/export' ROW
+FORMAT DELIMITED FIELDS TERMINATED BY ',' SELECT * FROM tableHive;
+
+INSERT OVERWRITE DIRECTORY
+'hdfs://localhost:9000/hive/data/output/export' ROW FORMAT
+DELIMITED FIELDS TERMINATED BY ',' SELECT * FROM tableHive;
+
+hadoop fs -cat /hive/data/output/export/*
 
 
 
