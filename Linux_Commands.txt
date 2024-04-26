@@ -1,3 +1,13 @@
+###### Superuser mode ######
+sudo -i
+
+###### Remove all files except the one that you need ######
+
+find . -type f ! -name 'NoCommasProjectTweets.csv' -exec rm -f {} +
+
+###### remove just one file ######
+rm OrderedProjectTweets.csv
+
 ###### Hadoop ######
 --Start hadoop:
 start-dfs.sh
@@ -6,15 +16,42 @@ start-yarn.sh
 --To see hadoop contents:
 hadoop fs -ls /
 
-hdfs dfs -rm -r /CA1_S2
-hadoop fs -mkdir /CA1_S2
-hadoop fs -put ./people_increased.csv /CA1_S2
+--Removing and creating a directory:
+hdfs dfs -rm -r /CA2_S2
+hadoop fs -mkdir /CA2_S2
+
+--To see any file 100 first rows:
+hadoop fs -cat /CA2_S2/CleanProjectTweets.csv | head -n 100
+
+hadoop fs -put ./ProjectTweets.csv /CA2_S2
+
+--Mapper and reducer permissions:
+chmod 700 mappero.py
+chmod 700 reducero.py
 hdfs fsck hdfs:///CA1_S2/people_increased.csv -files -blocks -locations
 
+---Mapreduce for commas and quotes:
+hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapperc.py -reducer ./reducerc.py -input /CA2_S2/ProjectTweets.csv -output /CA2_S2_NoCommas
 
-hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapper.py -reducer ./reducer.py -input /CA2_S2/CleanProjectTweets.csv -output /CA2_S2_MapReduceOutput
+--Save part-00000 into CA2_S2 folder as 'NoCommasProjectTweets.csv':
+hadoop fs -get /CA2_S2_NoCommas/part-00000 /home/hduser/Desktop/CA2_S2/NoCommasProjectTweets.csv
 
-hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapperc.py -reducer ./reducerc.py -input /CA2_S2/CleanProjectTweets.csv -output /CA2_S2_tweetsclean
+---Mapreduce to order rows by id:
+hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar \
+    -D mapreduce.job.output.key.comparator.class=org.apache.hadoop.mapred.lib.KeyFieldBasedComparator \
+    -D stream.num.map.output.key.fields=2 \
+    -D mapreduce.map.output.key.field.separator=, \
+    -D mapreduce.partition.keycomparator.options="-k1,1n" \
+    -files ./mappero.py,./reducero.py \
+    -mapper mappero.py \
+    -reducer reducero.py \
+    -input /CA2_S2_NoCommas/part-00000 \
+    -output /CA2_S2_Ordered
+    
+--Save part-00000 into CA2_S2 folder as 'OrderedProjectTweets.csv':
+hadoop fs -get /CA2_S2_Ordered/part-00000 /home/hduser/Desktop/CA2_S2/OrderedProjectTweets.csv
+
+hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapperc.py -reducer ./reducerc.py -input /CA2_S2/ProjectTweets.csv -output /CA2_S2_tweetsclean
 
 hadoop fs -rm -r /CA2_S2_MapReduceOutput
 
@@ -22,6 +59,30 @@ hadoop fs -chmod -R 777 /CA2_S2/
 hadoop fs -rm -r /CA2_S2/CleanProjectTweetsCleaned.csv
 
 ####### MySQL #######
+--Create the table:
+CREATE TABLE tweets (
+    ids text,
+    tweet_id text,
+    `date` VARCHAR(255),
+    flag VARCHAR(255),
+    `user` VARCHAR(255),
+    `text` text
+    );
+
+-- Move ProjectTweets.csv to 'secure_file_prive' otherwise it won't load:
+sudo mv /home/hduser/Desktop/CA2_S2/CleanTweets.csv /var/lib/mysql-files/
+
+-- This command keeps a copy into the original directory;
+sudo cp /home/hduser/Desktop/CA2_S2/NoCommasProjectTweets.csv /var/lib/mysql-files/
+
+
+LOAD DATA INFILE '/var/lib/mysql-files/NoCommasProjectTweets.csv'
+INTO TABLE tweets
+FIELDS TERMINATED BY ',' 
+LINES TERMINATED BY '\n'
+(ids, tweet_id, date, flag, user, text);
+
+
 
 mysql -u root -p
 
@@ -54,19 +115,31 @@ CREATE KEYSPACE twitterdb WITH REPLICATION = { 'class' : 'SimpleStrategy', 'repl
 
 cqlsh> use twitterdb;
 
+CREATE TABLE tweets (
+  ids text PRIMARY KEY,
+  tweet_id text,
+  date text,
+  flag text,
+  user text,
+  text text
+);
+
+
 CREATE TABLE tweets (ids text, tweet_id text, date text, flag text, user text, text text, PRIMARY KEY (ids));
 
 DESCRIBE table tweets;
+DROP table tweets;
+
 
 COPY twitterdb.tweets (ids, tweet_id, date, flag, user, text) 
-FROM '/home/hduser/Desktop/CA2_S2/CleanProjectTweets.csv' 
-WITH HEADER = true AND delimiter = ',';
+FROM '/home/hduser/Desktop/CA2_S2/OrderedProjectTweets.csv' 
+WITH HEADER = false AND delimiter = ',';
 
 CREATE TABLE tweets(ids text, tweet_id text, date text, flag text, user text, text text, primary key (ids, tweet_id, date, flag, user, text));
 
-COPY tweets FROM '/home/hduser/Desktop/CA2_S2/CleanTweets.csv'  WITH HEADER = TRUE AND DELIMITER = ',';
+COPY tweets FROM '/home/hduser/Desktop/CA2_S2/OrderedProjectTweets.csv'  WITH HEADER = FALSE AND DELIMITER = ',';
 
-SELECT * FROM twitter LIMIT 100;
+SELECT * FROM tweets LIMIT 100;
 
 --To delete records:
 TRUNCATE usertable;
@@ -153,6 +226,20 @@ cd workloads
 
 
 #### Hive #### Use hive to demonstrate map reduce along the mapreduce scripts I have.
+
+--IMPORTANT!!! Start hadoop first!!
+start-dfs.sh
+start-yarn.sh
+
+--To start Hive:
+cd /usr/local/hive/bin
+./schematool -initSchema -dbType derby
+hive
+
+--Hive error:
+rm -r metastore_db
+Error: FUNCTION 'NUCLEUS_ASCII' already exists. (state=X0Y68,code=30000)
+
 CREATE TABLE IF NOT EXISTS tableHive (numRow int, name String, city String, county String, country String) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\054'
 LOAD DATA INPATH 'hdfs://localhost:9000/hive/pig_tutorial_sample.txt' INTO TABLE tableHive;
 hive>SELECT * FROM tableHive;
@@ -166,6 +253,27 @@ INSERT OVERWRITE DIRECTORY
 DELIMITED FIELDS TERMINATED BY ',' SELECT * FROM tableHive;
 
 hadoop fs -cat /hive/data/output/export/*
+
+CREATE TABLE tweets (ids STRING, tweet_id STRING, `date` STRING, flag STRING, `user` STRING, `text` STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\054';
+
+LOAD DATA INPATH 'hdfs://localhost:9000/CA2_S2/ProjectTweets.csv' INTO TABLE tweets;
+
+DROP TABLE IF EXISTS tweets PURGE;
+
+--Count total rows:
+select count(*) from tweets;
+
+--Count distinct rows from tweet_id, clearly there are duplicates
+SELECT COUNT(DISTINCT tweet_id) FROM tweets;
+
+
+
+
+
+
+
+
+
 
 
 
