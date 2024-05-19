@@ -1,0 +1,296 @@
+###### Superuser mode ######
+sudo -i
+
+###### Remove all files except the one that you need ######
+
+find . -type f ! -name 'NoCommasProjectTweets.csv' -exec rm -f {} +
+
+###### remove just one file ######
+rm OrderedProjectTweets.csv
+
+###### Hadoop ######
+--Start hadoop:
+start-dfs.sh
+start-yarn.sh
+
+--To see hadoop contents:
+hadoop fs -ls /
+
+--Removing and creating a directory:
+hdfs dfs -rm -r /CA2_S2
+hadoop fs -mkdir /CA2_S2
+
+--To see any file 100 first rows:
+hadoop fs -cat /CA2_S2/CleanProjectTweets.csv | head -n 100
+
+hadoop fs -put ./ProjectTweets.csv /CA2_S2
+
+--Mapper and reducer permissions:
+chmod 700 mappero.py
+chmod 700 reducero.py
+hdfs fsck hdfs:///CA1_S2/people_increased.csv -files -blocks -locations
+
+---Mapreduce for commas and quotes:
+hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapperc.py -reducer ./reducerc.py -input /CA2_S2/ProjectTweets.csv -output /CA2_S2_NoCommas
+
+--Save part-00000 into CA2_S2 folder as 'NoCommasProjectTweets.csv':
+hadoop fs -get /CA2_S2_NoCommas/part-00000 /home/hduser/Desktop/CA2_S2/NoCommasProjectTweets.csv
+
+---Mapreduce to order rows by id:
+hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar \
+    -D mapreduce.job.output.key.comparator.class=org.apache.hadoop.mapred.lib.KeyFieldBasedComparator \
+    -D stream.num.map.output.key.fields=2 \
+    -D mapreduce.map.output.key.field.separator=, \
+    -D mapreduce.partition.keycomparator.options="-k1,1n" \
+    -files ./mappero.py,./reducero.py \
+    -mapper mappero.py \
+    -reducer reducero.py \
+    -input /CA2_S2_NoCommas/part-00000 \
+    -output /CA2_S2_Ordered
+    
+--Save part-00000 into CA2_S2 folder as 'OrderedProjectTweets.csv':
+hadoop fs -get /CA2_S2_Ordered/part-00000 /home/hduser/Desktop/CA2_S2/OrderedProjectTweets.csv
+
+hadoop jar $HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar -mapper ./mapperc.py -reducer ./reducerc.py -input /CA2_S2/ProjectTweets.csv -output /CA2_S2_tweetsclean
+
+hadoop fs -rm -r /CA2_S2_MapReduceOutput
+
+hadoop fs -chmod -R 777 /CA2_S2/
+hadoop fs -rm -r /CA2_S2/CleanProjectTweetsCleaned.csv
+
+####### MySQL #######
+--Create the table:
+CREATE TABLE tweets (
+    ids text,
+    tweet_id text,
+    `date` VARCHAR(255),
+    flag VARCHAR(255),
+    `user` VARCHAR(255),
+    `text` text
+    );
+
+-- Move ProjectTweets.csv to 'secure_file_prive' otherwise it won't load:
+sudo mv /home/hduser/Desktop/CA2_S2/CleanTweets.csv /var/lib/mysql-files/
+
+-- This command keeps a copy into the original directory;
+sudo cp /home/hduser/Desktop/CA2_S2/NoCommasProjectTweets.csv /var/lib/mysql-files/
+
+
+LOAD DATA INFILE '/var/lib/mysql-files/NoCommasProjectTweets.csv'
+INTO TABLE tweets
+FIELDS TERMINATED BY ',' 
+LINES TERMINATED BY '\n'
+(ids, tweet_id, date, flag, user, text);
+
+
+
+mysql -u root -p
+
+show databases;
+
+use BenchTest;
+
+show tables;
+
+delete from usertable;
+
+####### Cassandra #########
+# To find out cassandra IP:
+hostname -I
+
+--Firing up Cassandra, let it running:
+cd /usr/local/cassandra/
+bin/cassandra -f
+
+
+--In a different terminal:
+cd /usr/local/cassandra
+bin/cqlsh
+
+--See keyspaces:
+DESCRIBE KEYSPACES;
+
+--Creating twitterdb
+CREATE KEYSPACE twitterdb WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };
+
+cqlsh> use twitterdb;
+
+CREATE TABLE tweets (
+  ids text PRIMARY KEY,
+  tweet_id text,
+  date text,
+  flag text,
+  user text,
+  text text
+);
+
+
+CREATE TABLE tweets (ids text, tweet_id text, date text, flag text, user text, text text, PRIMARY KEY (ids));
+
+DESCRIBE table tweets;
+DROP table tweets;
+
+
+COPY twitterdb.tweets (ids, tweet_id, date, flag, user, text) 
+FROM '/home/hduser/Desktop/CA2_S2/OrderedProjectTweets.csv' 
+WITH HEADER = false AND delimiter = ',';
+
+CREATE TABLE tweets(ids text, tweet_id text, date text, flag text, user text, text text, primary key (ids, tweet_id, date, flag, user, text));
+
+COPY tweets FROM '/home/hduser/Desktop/CA2_S2/OrderedProjectTweets.csv'  WITH HEADER = FALSE AND DELIMITER = ',';
+
+SELECT * FROM tweets LIMIT 100;
+
+--To delete records:
+TRUNCATE usertable;
+
+--To count records:
+SELECT count(*) FROM usertable;
+
+##### Mongodb #######
+
+mongod --bind_ip 127.0.0.1
+--Let this command running in a separate window.
+
+Type below command in a new window:
+mongo
+show dbs
+use ycsb
+show collections
+db.usertable.count()
+db.usertable.find().limit(10)
+db.dropDatabase()
+
+--Setting up ycsb:
+
+-First create this table:
+
+create keyspace ycsb WITH REPLICATION = {'class' : 'SimpleStrategy', 'replication_factor': 3 };
+
+USE ycsb;
+
+create table usertable (y_id varchar primary key,field0 varchar,field1 varchar,field2 varchar,field3 varchar,field4 varchar,field5 varchar,field6 varchar,field7 varchar,field8 varchar,field9 varchar);
+
+select * from usertable limit 10;
+select count(*) from usertable;
+
+--To delete records:
+TRUNCATE usertable;
+
+###### YCSB #######
+
+cd /home/hduser/ycsb-0.17.0
+--workloads, to inspect the various workloads
+cd workloads
+
+## MySQL ##
+--Uploading Records to MySQL:
+./bin/ycsb.sh load jdbc -P ./jdbc-binding/conf/db.properties -P workloads/workloada
+
+--Running workloads a, b, c, d, e, f and g for MySQL:
+./bin/ycsb.sh run jdbc -P workloads/workloada -P ./jdbc-binding/conf/db.properties
+./bin/ycsb.sh run jdbc -P workloads/workloadb -P ./jdbc-binding/conf/db.properties
+./bin/ycsb.sh run jdbc -P workloads/workloadc -P ./jdbc-binding/conf/db.properties
+./bin/ycsb.sh run jdbc -P workloads/workloadd -P ./jdbc-binding/conf/db.properties
+./bin/ycsb.sh run jdbc -P workloads/workloade -P ./jdbc-binding/conf/db.properties
+./bin/ycsb.sh run jdbc -P workloads/workloadf -P ./jdbc-binding/conf/db.properties
+./bin/ycsb.sh run jdbc -P workloads/workloadg -P ./jdbc-binding/conf/db.properties
+
+## Mongodb ##
+--Uploading Records to Mongodb:
+./bin/ycsb.sh load mongodb -s -P workloads/workloada
+
+--Running workloads a, b, c, d, e, f and g for MongoDB:
+./bin/ycsb.sh run mongodb -s -P workloads/workloada
+./bin/ycsb.sh run mongodb -s -P workloads/workloadb
+./bin/ycsb.sh run mongodb -s -P workloads/workloadc
+./bin/ycsb.sh run mongodb -s -P workloads/workloadd
+./bin/ycsb.sh run mongodb -s -P workloads/workloade
+./bin/ycsb.sh run mongodb -s -P workloads/workloadf
+./bin/ycsb.sh run mongodb -s -P workloads/workloadg
+
+## Cassandra ##
+
+--Run below command to load records
+./bin/ycsb.sh load cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloada -s
+
+--Running workloads a, b, c and g for Cassandra:
+
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloada -s
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadb -s
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadc -s
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadd -s
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloade -s
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadf -s
+./bin/ycsb.sh run cassandra-cql -p hosts=10.0.2.15,127.0.0.1 -p port=9042 -p debug=true -P workloads/workloadg -s
+
+
+#### Hive #### Use hive to demonstrate map reduce along the mapreduce scripts I have.
+
+--IMPORTANT!!! Start hadoop first!!
+start-dfs.sh
+start-yarn.sh
+
+--To start Hive:
+cd /usr/local/hive/bin
+./schematool -initSchema -dbType derby
+hive
+
+--Hive error:
+rm -r metastore_db
+Error: FUNCTION 'NUCLEUS_ASCII' already exists. (state=X0Y68,code=30000)
+
+CREATE TABLE IF NOT EXISTS tableHive (numRow int, name String, city String, county String, country String) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\054'
+LOAD DATA INPATH 'hdfs://localhost:9000/hive/pig_tutorial_sample.txt' INTO TABLE tableHive;
+hive>SELECT * FROM tableHive;
+--export output:
+
+INSERT OVERWRITE LOCAL DIRECTORY '/home/hduser/export' ROW
+FORMAT DELIMITED FIELDS TERMINATED BY ',' SELECT * FROM tableHive;
+
+INSERT OVERWRITE DIRECTORY
+'hdfs://localhost:9000/hive/data/output/export' ROW FORMAT
+DELIMITED FIELDS TERMINATED BY ',' SELECT * FROM tableHive;
+
+hadoop fs -cat /hive/data/output/export/*
+
+CREATE TABLE tweets (ids STRING, tweet_id STRING, `date` STRING, flag STRING, `user` STRING, `text` STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\054';
+
+LOAD DATA INPATH 'hdfs://localhost:9000/CA2_S2/ProjectTweets.csv' INTO TABLE tweets;
+
+DROP TABLE IF EXISTS tweets PURGE;
+
+--Count total rows:
+select count(*) from tweets;
+
+--Count distinct rows from tweet_id, clearly there are duplicates
+SELECT COUNT(DISTINCT tweet_id) FROM tweets;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

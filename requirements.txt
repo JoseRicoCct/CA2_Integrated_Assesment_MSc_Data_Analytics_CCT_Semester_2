@@ -1,3 +1,4 @@
+# Dependencies for Streamlit dashboard
 pandas
 streamlit
 plotly

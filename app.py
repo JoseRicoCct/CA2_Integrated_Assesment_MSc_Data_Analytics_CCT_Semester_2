@@ -13,22 +13,22 @@ from skforecast.ForecasterAutoreg import ForecasterAutoreg
 from sklearn.model_selection import ParameterGrid
 import tensorflow as tf
 
-# Ensure TensorFlow uses all CPU threads efficiently
+#  CPU threads TensorFlow
 tf.config.threading.set_intra_op_parallelism_threads(4)
 tf.config.threading.set_inter_op_parallelism_threads(4)
 
-# Load data for Twitter Sentiment Analysis
+# Loading data for Twitter Sentiment Analysis
 @st.cache_data
 def load_twitter_data():
-    df_twitter = pd.read_csv('StreamlitData11.csv')
+    df_twitter = pd.read_csv('StreamlitData1.csv')
     df_twitter['date'] = pd.to_datetime(df_twitter['date'])
     df_twitter.set_index('date', inplace=True)
     return df_twitter
 
-# Load data for LSTM Time Series
+# Loading data for LSTM Time Series
 @st.cache_data
 def load_lstm_data():
-    hsa3 = pd.read_csv('StreamlitData22.csv')
+    hsa3 = pd.read_csv('StreamlitData2.csv')
     hsa3['date'] = pd.to_datetime(hsa3['date'])
     hsa3.set_index('date', inplace=True)
     hsa3.index.freq = pd.infer_freq(hsa3.index)
@@ -88,12 +88,12 @@ def plot_lstm_forecasts(train, test, test_index, predictions, model, test_scaled
         future_predictions = predict_future(model, test_scaled, time_step, n_future, scaler)
         future_index = pd.date_range(start=test.index[-1] + pd.Timedelta(hours=1), periods=n_future, freq='h')
         
-        # Calculate RMSE for future predictions
+        # Calculating RMSE for future predictions
         future_test_segment = test[-n_future:]
         if len(future_test_segment) == len(future_predictions):
             rmse_future = np.sqrt(mean_squared_error(future_test_segment, future_predictions))
         else:
-            rmse_future = np.nan  # Handle cases where lengths do not match
+            rmse_future = np.nan  # Handling cases where lengths do not match
 
         plt.subplot(3, 1, i+1)
         plt.plot(train.index, train, label='Train data')
@@ -112,7 +112,7 @@ def plot_lstm_forecasts(train, test, test_index, predictions, model, test_scaled
 # Page 1: YCSB Workloads
 def ycsb_workloads_page():
     st.title("YCSB Workloads")
-    # Plot YCSB workloads visualization code here
+    # Plotting YCSB workloads visualization code here
     def plot_workload_a_read():
         MySQL_rl = [482.01, 196.57, 262.01, 164.47, 194.01]
         MySQL_rj = [523, 5014, 25133, 49965, 100153]
@@ -465,7 +465,7 @@ def ycsb_workloads_page():
         )
         return fig
 
-    # Add a selector for the workload visualization
+    # Selectors for the workload visualization
     workloads = {
         "Workload A: Read Latency": plot_workload_a_read,
         "Workload A: Update Latency": plot_workload_a_update,
@@ -570,7 +570,7 @@ def forecaster_autoreg_page():
     options = ["Initial Model", "Hyperparameter Tuned Model", "Summary"]
     selection = st.selectbox("Select Option", options)
 
-    # Initialize the forecaster
+    # Initializing the forecaster
     forecaster = ForecasterAutoreg(
         regressor=RandomForestRegressor(random_state=123),
         lags=24  # Use 24 lags since data is hourly
@@ -580,7 +580,7 @@ def forecaster_autoreg_page():
     train = hsa3[:-24*7]
     test = hsa3[-24*7:]
 
-    # Fit the forecaster with the training data
+    # Fitting the forecaster with the training data
     forecaster.fit(y=train['vader_score'])
 
     if selection == "Initial Model":
@@ -637,7 +637,7 @@ def forecaster_autoreg_page():
                     best_params[steps] = params
                     best_predictions[steps] = predictions
 
-        # Plot the best predictions for each period
+        # Plotting the best predictions for each period
         periods = [24, 72, 168]
         titles = ['Best One Day Sentiment Prediction', 'Best Three Day Sentiment Prediction', 'Best Seven Day Sentiment Prediction']
 
