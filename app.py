@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
-from keras.layers import LSTM, Dense
+from keras.layers import LSTM, Dense, Input
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 import plotly.express as px
@@ -11,17 +11,31 @@ import plotly.graph_objects as go
 from sklearn.ensemble import RandomForestRegressor
 from skforecast.ForecasterAutoreg import ForecasterAutoreg
 from sklearn.model_selection import ParameterGrid
+import tensorflow as tf
 
+# Ensure TensorFlow uses all CPU threads efficiently
+tf.config.threading.set_intra_op_parallelism_threads(4)
+tf.config.threading.set_inter_op_parallelism_threads(4)
 
 # Load data for Twitter Sentiment Analysis
-df_twitter = pd.read_csv('StreamlitData11.csv')
-df_twitter['date'] = pd.to_datetime(df_twitter['date'])
-df_twitter.set_index('date', inplace=True)
+@st.cache_data
+def load_twitter_data():
+    df_twitter = pd.read_csv('StreamlitData11.csv')
+    df_twitter['date'] = pd.to_datetime(df_twitter['date'])
+    df_twitter.set_index('date', inplace=True)
+    return df_twitter
 
 # Load data for LSTM Time Series
-hsa3 = pd.read_csv('StreamlitData22.csv')
-hsa3['date'] = pd.to_datetime(hsa3['date'])
-hsa3.set_index('date', inplace=True)
+@st.cache_data
+def load_lstm_data():
+    hsa3 = pd.read_csv('StreamlitData22.csv')
+    hsa3['date'] = pd.to_datetime(hsa3['date'])
+    hsa3.set_index('date', inplace=True)
+    hsa3.index.freq = pd.infer_freq(hsa3.index)
+    return hsa3
+
+df_twitter = load_twitter_data()
+hsa3 = load_lstm_data()
 
 # Function to create sequences
 def create_sequences(data, time_step=1):
@@ -72,7 +86,7 @@ def plot_lstm_forecasts(train, test, test_index, predictions, model, test_scaled
 
     for i, n_future in enumerate(n_future_list):
         future_predictions = predict_future(model, test_scaled, time_step, n_future, scaler)
-        future_index = pd.date_range(start=test.index[-1] + pd.Timedelta(hours=1), periods=n_future, freq='H')
+        future_index = pd.date_range(start=test.index[-1] + pd.Timedelta(hours=1), periods=n_future, freq='h')
         
         # Calculate RMSE for future predictions
         future_test_segment = test[-n_future:]
@@ -93,7 +107,7 @@ def plot_lstm_forecasts(train, test, test_index, predictions, model, test_scaled
 
     plt.tight_layout()
     st.pyplot(plt)
-    
+
 
 # Page 1: YCSB Workloads
 def ycsb_workloads_page():
@@ -473,17 +487,15 @@ def ycsb_workloads_page():
 
     workload_selection = st.selectbox("Select Workload Visualization", list(workloads.keys()))
     st.plotly_chart(workloads[workload_selection](), use_container_width=True)
-    
 
-
-# Twitter Sentiment Analysis Page
+# Page 2: Twitter Sentiment Analysis Page
 def twitter_sentiment_analysis_page():
     st.title("Twitter Sentiment Analysis")
     
     # Function to calculate hourly vader average with day
     def calculate_hourly_vader_average_with_day(df):
         df['vader_score'] = pd.to_numeric(df['vader_score'], errors='coerce')
-        hourly_average = df.resample('H')['vader_score'].mean().reset_index()
+        hourly_average = df.resample('h')['vader_score'].mean().reset_index()
         hourly_average['day_of_week'] = hourly_average['date'].dt.day_name()
         return hourly_average
     
@@ -552,8 +564,7 @@ def twitter_sentiment_analysis_page():
     sentiment_selection = st.selectbox("Select Sentiment Analysis Visualization", list(sentiment_options.keys()))
     st.plotly_chart(sentiment_options[sentiment_selection](df_twitter), use_container_width=True)
 
-    
-# Page 3:    
+# Page 3: ForecasterAutoreg Time Series
 def forecaster_autoreg_page():
     st.title("ForecasterAutoreg Time Series")
     options = ["Initial Model", "Hyperparameter Tuned Model", "Summary"]
@@ -586,7 +597,7 @@ def forecaster_autoreg_page():
             last_timestamp = hsa3.index[-1]
             prediction_start_date = last_timestamp + pd.Timedelta(hours=1)
             predictions = forecaster.predict(steps=steps, last_window=hsa3['vader_score'].tail(forecaster.window_size))
-            predictions.index = pd.date_range(start=prediction_start_date, periods=len(predictions), freq='H')
+            predictions.index = pd.date_range(start=prediction_start_date, periods=len(predictions), freq='h')
 
             # Calculate MSE
             mse = mean_squared_error(test['vader_score'].iloc[:steps], predictions)
@@ -632,7 +643,7 @@ def forecaster_autoreg_page():
 
         for period, title in zip(periods, titles):
             prediction_start_date = test.index[-1] + pd.Timedelta(hours=1)
-            best_predictions[period].index = pd.date_range(start=prediction_start_date, periods=len(best_predictions[period]), freq='H')
+            best_predictions[period].index = pd.date_range(start=prediction_start_date, periods=len(best_predictions[period]), freq='h')
 
             plt.figure(figsize=(15, 7))
             plt.plot(hsa3['vader_score'], label='Train data')
@@ -719,7 +730,8 @@ def lstm_time_series_page():
 
     # Build the LSTM model
     model = Sequential()
-    model.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
+    model.add(Input(shape=(time_step, 1)))  # Use Input layer as the first layer
+    model.add(LSTM(50, return_sequences=True))
     model.add(LSTM(50, return_sequences=False))
     model.add(Dense(25))
     model.add(Dense(1))
@@ -742,10 +754,9 @@ def lstm_time_series_page():
     plot_lstm_results(train, test, test_index, predictions, rmse_test)
     plot_lstm_forecasts(train, test, test_index, predictions, model, test_scaled, time_step, scaler)
 
-    
 # Navigation
 st.sidebar.title("Menu")
-page = st.sidebar.radio("Go to section:", ["YCSB Workloads", "Twitter Sentiment Analysis", "Time Series ForecasterAutoreg","Time Series LSTM"])
+page = st.sidebar.radio("Go to section:", ["YCSB Workloads", "Twitter Sentiment Analysis", "Time Series ForecasterAutoreg", "Time Series LSTM"])
 
 # Load the appropriate page
 if page == "YCSB Workloads":
@@ -756,11 +767,6 @@ elif page == "Time Series ForecasterAutoreg":
     forecaster_autoreg_page()
 elif page == "Time Series LSTM":
     lstm_time_series_page()
-    
-    
-    
+
 # Additional tags
 st.markdown("<p style='text-align: center;'>Developed with ❤️ at CCT College Dublin.</p>", unsafe_allow_html=True)
-
-
-
