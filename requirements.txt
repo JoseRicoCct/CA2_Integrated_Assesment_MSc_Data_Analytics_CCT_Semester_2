@@ -1,11 +1,10 @@
-# Dependencies for Streamlit dashboard
-pandas
-streamlit
-plotly
-numpy
-matplotlib
-scikit-learn
-keras
-skforecast
-tensorflow
+pandas==2.1.4
+streamlit==1.29.0
+plotly==5.18.0
+numpy==1.26.2
+matplotlib==3.8.0
+scikit-learn==1.4.2
+keras==3.2.1
+skforecast==0.12.0
+tensorflow==2.16.1
 
